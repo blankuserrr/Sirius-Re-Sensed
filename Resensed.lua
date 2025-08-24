@@ -516,9 +516,9 @@ function EspObject:Render(deltaTime: number)
         box3d.Adornee = self.character.PrimaryPart
         box3d.CFrame = self.character.PrimaryPart.CFrame:ToObjectSpace(self.boundingBoxCFrame)
         box3d.Size = self.boundingBoxSize
-		local box3dColor = (self.isVisible and options.visibleBox3dColor) or options.box3dColor
-        box3d.Color3 = parseColor(self, box3dColor[1])
-        box3d.Transparency = box3dColor[2]
+		local box3dColorInfo = (self.isVisible and options.visibleBox3dColor) or options.box3dColor
+        box3d.Color3 = parseColor(self, box3dColorInfo[1])
+        box3d.Transparency = box3dColorInfo[2]
     else
         box3d.Adornee = nil
     end
