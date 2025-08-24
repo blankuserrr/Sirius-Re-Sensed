@@ -46,7 +46,7 @@ local NAME_OFFSET = Vector2.new(0, 2);
 local DISTANCE_OFFSET = Vector2.new(0, 2);
 
 -- constants
-local SKELETON_CONNECTIONS_R15 = {
+local SKELETON_CONNECTIONS = {
 	{"Head", "UpperTorso"},
 	{"UpperTorso", "LowerTorso"},
 	{"UpperTorso", "LeftUpperArm"},
@@ -61,14 +61,6 @@ local SKELETON_CONNECTIONS_R15 = {
 	{"RightUpperLeg", "RightLowerLeg"},
 	{"LeftLowerLeg", "LeftFoot"},
 	{"RightLowerLeg", "RightFoot"}
-};
-
-local SKELETON_CONNECTIONS_R6 = {
-	{"Head", "Torso"},
-	{"Torso", "Left Arm"},
-	{"Torso", "Right Arm"},
-	{"Torso", "Left Leg"},
-	{"Torso", "Right Leg"}
 };
 
 local VERTICES = {
@@ -146,7 +138,7 @@ function EspObject:Construct()
 	self.charCache = {};
 	self.childCount = 0;
 	self.bin = {};
-	self.skeletonConnections = SKELETON_CONNECTIONS_R15;
+	self.skeletonSegments = {};
 
 	local billboardGui = Instance.new("BillboardGui")
 	billboardGui.Name = "InfoGui"
@@ -210,10 +202,7 @@ function EspObject:Construct()
 	self.drawings.visible.weapon, self.drawings.visible.weaponStroke = createTextLabel("Weapon", 0.7)
 	self.drawings.visible.healthText, self.drawings.visible.healthTextStroke = createTextLabel("Health", 0.3)
 
-	-- Preallocate enough lines for the largest skeleton (R15)
-	for i = 1, #SKELETON_CONNECTIONS_R15 do
-		self.drawings.visible.skeleton[i] = self:_create("Line", { Thickness = 1, Visible = false })
-	end
+	-- skeleton lines are created dynamically based on Motor6D links
 
 	self.renderConnection = runService.RenderStepped:Connect(function(deltaTime: number)
 		self:Update(deltaTime);
@@ -236,6 +225,36 @@ function EspObject:Destruct()
 	clear(self);
 end
 
+function EspObject:_destroySkeleton()
+	local skel = self.skeletonSegments or {}
+	for i = 1, #skel do
+		local line = skel[i].line
+		if line then
+			pcall(function() line:Remove() end)
+		end
+	end
+	self.skeletonSegments = {}
+	self.drawings.visible.skeleton = {}
+end
+
+function EspObject:_rebuildSkeleton()
+	self:_destroySkeleton()
+	if not self.character then return end
+	local segments = {}
+	for _, part in ipairs(self.character:GetChildren()) do
+		if part:IsA("BasePart") then
+			for _, link in ipairs(part:GetChildren()) do
+				if link:IsA("Motor6D") and link.Part0 and link.Part1 then
+					local line = self:_create("Line", { Thickness = 1, Visible = false })
+					segments[#segments+1] = { part0 = link.Part0, part1 = link.Part1, line = line }
+					self.drawings.visible.skeleton[#self.drawings.visible.skeleton+1] = line
+				end
+			end
+		end
+	end
+	self.skeletonSegments = segments
+end
+
 function EspObject:Update(deltaTime: number)
 	local interface = self.interface;
 
@@ -254,13 +273,6 @@ function EspObject:Update(deltaTime: number)
 		return;
 	end
 
-	-- Detect rig type and choose skeleton connections
-	if self.character:FindFirstChild("UpperTorso") then
-		self.skeletonConnections = SKELETON_CONNECTIONS_R15;
-	else
-		self.skeletonConnections = SKELETON_CONNECTIONS_R6;
-	end
-
 	local _, onScreen, depth = worldToScreen(head.Position);
 	self.onScreen = onScreen;
 	self.distance = depth;
@@ -269,10 +281,9 @@ function EspObject:Update(deltaTime: number)
 		self.onScreen = false;
 	end
 
-	-- Cache only the parts needed for the current skeleton connections
 	if self.character and (not next(self.charCache) or self.childCount ~= #self.character:GetChildren()) then
 		clear(self.charCache)
-		for _, connection in ipairs(self.skeletonConnections) do
+		for _, connection in ipairs(SKELETON_CONNECTIONS) do
 			for _, partName in ipairs(connection) do
 				if not self.charCache[partName] then
 					local part = self.character:FindFirstChild(partName)
@@ -312,6 +323,20 @@ function EspObject:Update(deltaTime: number)
 			self.isVisible = (not result) or (result.Instance:IsDescendantOf(self.character))
 		end
 	end
+
+	-- ensure skeleton is (re)built when needed
+	if self.options.skeleton then
+		if (not self.skeletonSegments) or (#self.skeletonSegments == 0) or (self._lastSkeletonChildCount ~= self.childCount) then
+			self:_rebuildSkeleton()
+			self._lastSkeletonChildCount = self.childCount
+		end
+	else
+		-- hide skeleton if disabled
+		for i = 1, #(self.skeletonSegments or {}) do
+			local seg = self.skeletonSegments[i]
+			if seg and seg.line then seg.line.Visible = false end
+		end
+	end
 end
 
 function EspObject:Render(deltaTime: number)
@@ -319,7 +344,7 @@ function EspObject:Render(deltaTime: number)
 	local enabled = self.enabled or false;
 	local visible = self.drawings.visible;
 	local hidden = self.drawings.hidden;
-	local box3dAdornment = self.drawings.box3d;
+	local box3d = self.drawings.box3d;
 	local interface = self.interface;
 	local options = self.options;
 	local corners = self.corners;
@@ -422,23 +447,20 @@ function EspObject:Render(deltaTime: number)
 	end
 
 	local skeletonEnabled = enabled and onScreen and options.skeleton
-	for i, line in ipairs(self.drawings.visible.skeleton) do
-		local connection = self.skeletonConnections[i]
-		line.Visible = skeletonEnabled and connection ~= nil
-		if skeletonEnabled and connection then
-			local p1 = self.charCache[connection[1]]
-			local p2 = self.charCache[connection[2]]
-
-			if p1 and p2 then
-				local pos1, vis1 = worldToScreen(p1.Position)
-				local pos2, vis2 = worldToScreen(p2.Position)
-
-				if vis1 or vis2 then
+	if self.skeletonSegments then
+		for i = 1, #self.skeletonSegments do
+			local seg = self.skeletonSegments[i]
+			local line = seg.line
+			if skeletonEnabled and seg.part0 and seg.part1 then
+				local pos1, vis1, z1 = worldToScreen(seg.part0.Position)
+				local pos2, vis2, z2 = worldToScreen(seg.part1.Position)
+				if (vis1 and z1 > 0) or (vis2 and z2 > 0) then
 					line.From = pos1
 					line.To = pos2
 					local color = (self.isVisible and options.visibleSkeletonColor) or options.skeletonColor
 					line.Color = parseColor(self, color[1])
 					line.Transparency = color[2]
+					line.Visible = true
 				else
 					line.Visible = false
 				end
@@ -486,19 +508,20 @@ function EspObject:Render(deltaTime: number)
 		arrowOutline.Transparency = options.offScreenArrowOutlineColor[2];
 	end
 
-	local box3dEnabled = enabled and onScreen and options.box3d
-	box3dAdornment.Visible = box3dEnabled
+	local box3d = self.drawings.box3d
+    local box3dEnabled = enabled and onScreen and options.box3d
+	box3d.Visible = box3dEnabled
 
-	if box3dEnabled and self.character and self.character.PrimaryPart then
-		box3dAdornment.Adornee = self.character.PrimaryPart
-		box3dAdornment.CFrame = self.character.PrimaryPart.CFrame:ToObjectSpace(self.boundingBoxCFrame)
-		box3dAdornment.Size = self.boundingBoxSize
+    if box3dEnabled and self.character and self.character.PrimaryPart then
+        box3d.Adornee = self.character.PrimaryPart
+        box3d.CFrame = self.character.PrimaryPart.CFrame:ToObjectSpace(self.boundingBoxCFrame)
+        box3d.Size = self.boundingBoxSize
 		local box3dColor = (self.isVisible and options.visibleBox3dColor) or options.box3dColor
-		box3dAdornment.Color3 = parseColor(self, box3dColor[1])
-		box3dAdornment.Transparency = box3dColor[2]
-	else
-		box3dAdornment.Adornee = nil
-	end
+        box3d.Color3 = parseColor(self, box3dColor[1])
+        box3d.Transparency = box3dColor[2]
+    else
+        box3d.Adornee = nil
+    end
 end
 
 -- cham object
