@@ -375,9 +375,9 @@ function EspObject:Render(deltaTime: number)
 		boxFill.Position = corners.topLeft;
 		boxFill.Size = corners.bottomRight - corners.topLeft;
 
-		local boxFillColor = (self.isVisible and options.visibleBoxFillColor) or options.boxFillColor
-		boxFill.Color = parseColor(self, boxFillColor[1]);
-		boxFill.Transparency = boxFillColor[2];
+		local boxFillColorInfo = (self.isVisible and options.visibleBoxFillColor) or options.boxFillColor
+		boxFill.Color = parseColor(self, boxFillColorInfo[1]);
+		boxFill.Transparency = boxFillColorInfo[2];
 	end
 
 	visible.healthBar.Visible = enabled and onScreen and options.healthBar;
