@@ -356,9 +356,9 @@ function EspObject:Render(deltaTime: number)
 		box.Position = corners.topLeft;
 		box.Size = corners.bottomRight - corners.topLeft;
 
-		local boxColor = (self.isVisible and options.visibleBoxColor) or options.boxColor
-		box.Color = parseColor(self, boxColor[1]);
-		box.Transparency = boxColor[2];
+		local boxColorInfo = (self.isVisible and options.visibleBoxColor) or options.boxColor
+		box.Color = parseColor(self, boxColorInfo[1]);
+		box.Transparency = boxColorInfo[2];
 
 		local boxOutline = visible.boxOutline;
 		boxOutline.Position = box.Position;
